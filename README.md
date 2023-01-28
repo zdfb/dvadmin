@@ -460,11 +460,11 @@ export default {
 ### 3.3 网页操作部分
 
 *   在系统管理/菜单管理下，点击新增，填写相关信息
-    ![6b3f6d58b0344ee2233c39f1c548b79e.png](en-resource://database/608:1)
+    <img src="pngs/3.3.1.png" ><br>
 *   点击图片管理右侧的菜单按钮，添加相应的权限
-    ![b9858faefcb3ca22f074594ccc0324e1.png](en-resource://database/610:1)
+     <img src="pngs/3.3.2.png" ><br>
 *   刷新界面，侧边栏中出现图片管理项。进入并点击新增，产生记录数据
-    ![9eac81f52b13ee94d465368843e4879e.png](en-resource://database/612:1)
+     <img src="pngs/3.3.3.png" ><br>
 
 ### 3.4 备注
 
