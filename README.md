@@ -483,4 +483,416 @@ npm run lint -- --fix
 
 *   [参考博文1](https://blog.csdn.net/QAZJOU/article/details/126680407)
 *   [参考博文2](https://bbs.django-vue-admin.com/article/9.html)
+## 四、新增图像识别demo
+
+### 4.1 后端部分
+
+*   创建名为recognize\_image的app
+
+```bash
+cd backend
+python manage.py startapp recognize_image
+```
+
+*   在./application/settings.py内添加recognize\_image
+
+```python
+INSTALLED_APPS = [
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "django_comment_migrate",
+    "rest_framework",
+    "django_filters",
+    "corsheaders",  # 注册跨域app
+    "dvadmin.system",
+    "drf_yasg",
+    "captcha",
+    'channels',
+    'image_manager',  # 图像管理app
+    'recognize_image', # 图像识别app
+]
+```
+
+*   与上面的增删改查demo不同，不对model.py进行操作，仅识别不与数据库产生交互（实现app间的交互过于复杂，没研究明白hhhh）
+*   在views.py内，直接定义函数，通过@require\_http\_methods(\["POST", "GET", "PUT", "DELETE"])定义方法
+
+```python
+
+import os
+import sys
+import json
+from django.conf import settings
+from django.http import HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+
+sys.path.append('..')
+sys.path.append('../recognize_model')  # 特别注意添加识别模型所在路径
+
+from recognize_model.main import ViT
+vit = ViT()
+
+# 直接定义http方法
+@require_http_methods(["POST", "GET", "PUT", "DELETE"])
+@csrf_exempt
+def recognize(request):
+    if request.method == 'POST':
+        file = request.FILES.get("file")  # 获取前端上传的文件
+        original_path = "static/images/origin"
+        file_path = os.path.join(settings.BASE_DIR, original_path)
+        file_name = os.path.join(file_path, file.name)
+        f = open(file_name, "wb+")
+        for chunk in file.chunks():
+            f.write(chunk)
+       
+        origin_image_path = file_name
+        heatmap, label_list, confidence_list = vit.recognize_image(origin_image_path)
+        topk_label = []
+        topk_confidence = []
+        for index in range(len(label_list)):
+            topk_label.append(label_list[index])
+            topk_confidence.append(str(round(confidence_list[index], 4)))
+   
+        result_root_path = "static/images/heatmap"
+        result_path = os.path.join(settings.BASE_DIR, result_root_path)
+        result_name = os.path.join(result_path, file.name)
+        heatmap.save(result_name)
+        other_confidence = str(round(1 - sum(confidence_list)))
+        
+        #  返回图片原路径，热力图路径及top5的类别名及置信率
+        data = {
+            "code":200,
+            'msg':"上传图片成功",
+            'original_path':original_path,
+            'heatmap_path': result_root_path,
+            'top1_label': topk_label[0],
+            'top1_confidence':topk_confidence[0],
+            'top2_label': topk_label[1],
+            'top2_confidence':topk_confidence[1],
+            'top3_label': topk_label[2],
+            'top3_confidence':topk_confidence[2],
+            'top4_label': topk_label[3],
+            'top4_confidence':topk_confidence[3],
+            'top5_label': topk_label[4],
+            'top5_confidence':topk_confidence[4],
+            'other_label': '其他',
+            'other_confidence': other_confidence
+        }
+        return HttpResponse(json.dumps(data))
+```
+
+*   新建urls.py文件，直接定义路由（使用增删改查demo内的register方法会报错）
+
+```python
+
+from django.urls import path
+from. import views
+
+# api/recognize_image/为前端访问接口，views.recognize为后端处理函数
+urlpatterns = [
+    path('api/recognize_image/', views.recognize, name = 'recognize'),
+]
+```
+
+*   在./application/urls.py内进行注册
+
+```python
+
+urlpatterns = (
+        [
+            re_path(
+                r"^swagger(?P<format>\.json|\.yaml)$",
+                schema_view.without_ui(cache_timeout=0),
+                name="schema-json",
+            ),
+            path(
+                "",
+                schema_view.with_ui("swagger", cache_timeout=0),
+                name="schema-swagger-ui",
+            ),
+            path(
+                r"redoc/",
+                schema_view.with_ui("redoc", cache_timeout=0),
+                name="schema-redoc",
+            ),
+            path("api/system/", include("dvadmin.system.urls")),
+            path("api/login/", LoginView.as_view(), name="token_obtain_pair"),
+            path("api/logout/", LogoutView.as_view(), name="token_obtain_pair"),
+            path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+            re_path(
+                r"^api-auth/", include("rest_framework.urls", namespace="rest_framework")
+            ),
+            path("api/captcha/", CaptchaView.as_view()),
+            path("api/init/dictionary/", InitDictionaryViewSet.as_view()),
+            path("api/init/settings/", InitSettingsViewSet.as_view()),
+            path("apiLogin/", ApiLogin.as_view()),
+            path('',include('image_manager.urls')), # 图片管理app
+            path('',include('recognize_image.urls')), # 图像识别app
+        ]
+        + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+        + static(settings.STATIC_URL, document_root=settings.STATIC_URL)
+        + [re_path(ele.get('re_path'), include(ele.get('include'))) for ele in settings.PLUGINS_URL_PATTERNS]
+)
+```
+
+*   迁徙app
+
+```bash
+python manage.py makemigrations recognize_image
+python manage.py migrate recognize_image
+```
+
+### 4.2 前端部分
+
+*   在web/src/views下新建后端对应的recognize\_image文件夹
+*   与上面的增删改查demo不同，文件夹内直接新建index.vue（无api.js及crud.js）
+
+```javascript
+
+<template>
+    <d2-container>
+    
+    //使用el-card将界面嵌入一个box内，好看一点hhhh
+    <el-card class="box-card" >
+    <div slot="header" class="clearfix">
+      <span>面向机场鸟类的细粒度识别系统</span>
+    </div>
+    
+    // 使用el-col :span定义水平网格，实现左右布局
+    <el-col :span="20">
+    
+      // 定义表单数据
+      <el-form :model="ruleForm" :rules="rules" ref="ruleForm" label-width="100px">
+        <el-form-item label="图片名称" prop="name" class="input-box">
+          <el-input v-model="ruleForm.name" ></el-input>
+        </el-form-item>
+        <el-form-item label="图片描述" prop="desc" class="input-box">
+          <el-input type="textarea" v-model="ruleForm.desc"></el-input>
+        </el-form-item>
+        <el-form-item label="日期选择" prop="date" class="input-box">
+              <el-date-picker v-model="ruleForm.date" format="yyyy-MM-dd" value-format="yyyy-MM-dd"
+                :style="{width: '100%'}" placeholder="请选择日期" clearable></el-date-picker>
+        </el-form-item>
+        <el-row>
+        <el-col :span="10">  // 占页面的左半部分
+        <el-form-item label="识别图片" prop="original_image">
+          <el-upload
+              class="avatar-uploader"
+              ref="upload"
+              :action= "uploadurl()"  // 上传后端的接口地址
+              :show-file-list="false"
+              :auto-upload="true"
+              :on-success="uploadsuccess">  // 点击后直接调用uploadsuccess函数
+              // 当存在original_image时，进行展示，初始化没有
+            <img v-if="original_image" :src="original_image" class="avatar">
+            <i v-else class="el-icon-plus avatar-uploader-icon"></i>
+          </el-upload>
+        </el-form-item>
+      </el-col>
+      <el-col :span="10"> //占页面的右半部分
+        <el-form-item v-if ="heat_map" label="可视化热力图">
+          <img :src="heat_map" class="avatar">
+        </el-form-item>
+      </el-col>
+      </el-row>
+      <el-form-item>  // 定义echart图标组件
+          <div class="echart" id="mychart" ref="Echarts" :style="myChartStyle"></div>
+      </el-form-item>
+      <el-form-item v-if ="heat_map">
+          <div>识别结果为：{{this.pieData[0].name}}，置信率为：{{this.pieData[0].value}}</div>
+      </el-form-item>
+     
+     // 定义清空按钮
+      <el-form-item v-if ="heat_map">
+        <el-button @click="resetForm('ruleForm')" type="primary" plain>重置数据</el-button>
+      </el-form-item>
+      </el-form>
+      </el-col>
+    </el-card>
+    </d2-container>
+    </template>
+<script>
+import * as echarts from 'echarts'
+function convertFloat (a) {
+  var floatValue = +(a)
+  return floatValue
+};
+export default {
+  name: 'recognize_image',
+  data () {
+    return {
+      
+      // 表单数据
+      ruleForm: {
+        name: '',
+        desc: '',
+        date: ''
+      },
+      rules: {
+        name: [
+          { required: true, message: '请输入图片名称', trigger: 'blur' },
+          { max: 20, message: '最多20个字符', trigger: 'blur' }
+        ],
+        desc: [
+          { required: true, message: '请填写图片描述', trigger: 'blur' },
+          { max: 50, message: '描述最多50个字符', trigger: 'blur' }
+        ],
+        original_image: [
+          { required: true, message: '请上传待识别图片' }
+        ],
+        date: [
+          { required: true, message: '请输入识别日期' }
+        ]
+      },
+      original_image: '', //原始图像地址
+      heat_map: '', //热力图地址
+      myChart: {}, //echart图表
+      pieData: [  //饼图内部数据内容
+        {
+          value: 0.0, //置信率
+          name: ''  //类别名
+        },
+        {
+          value: 0.0,
+          name: ''
+        },
+        {
+          value: 0.0,
+          name: ''
+        },
+        {
+          value: 0.0,
+          name: ''
+        },
+        {
+          value: 0.0,
+          name: ''
+        },
+        {
+          value: 0.0,
+          name: ''
+        }
+      ],
+      pieName: [],
+      myChartStyle: { float: 'left', width: '100%', height: '350px' }
+    }
+  },
+  methods: {
+    uploadsuccess (res, files) {
+    // 后端传过来的原始图像，热力图地址及置信率与预测类别赋给前端对象
+      this.original_image = 'http://127.0.0.1:8000/' + res.original_path + '/' + files.name
+      this.heat_map = 'http://127.0.0.1:8000/' + res.heatmap_path + '/' + files.name
+      this.pieData[0].name = res.top1_label
+      this.pieData[0].value = convertFloat(res.top1_confidence)
+      this.pieData[1].name = res.top2_label
+      this.pieData[1].value = convertFloat(res.top2_confidence)
+      this.pieData[2].name = res.top3_label
+      this.pieData[2].value = convertFloat(res.top3_confidence)
+      this.pieData[3].name = res.top4_label
+      this.pieData[3].value = convertFloat(res.top4_confidence)
+      this.pieData[4].name = res.top5_label
+      this.pieData[4].value = convertFloat(res.top5_confidence)
+      this.pieData[5].name = res.other_label
+      this.pieData[5].value = convertFloat(res.other_confidence)
+      this.initDate()  //初始化饼图
+      this.initEcharts()
+    },
+    uploadurl () {
+      return 'http://127.0.0.1:8000/api/recognize_image/'
+    },
+    resetForm (formName) {
+      this.$refs[formName].resetFields()
+      this.original_image = ''
+      this.heat_map = ''
+      this.myChart.clear()
+    },
+    initDate () {
+      for (let i = 0; i < this.pieData.length; i++) {
+        this.pieName[i] = this.pieData[i].name
+      }
+    },
+    initEcharts () {
+      // 饼图
+      const option = {
+        legend: {
+          // 图例
+          data: this.pieName,
+          right: '35%',
+          top: '30%',
+          orient: 'vertical'
+        },
+        title: {
+          // 设置饼图标题，位置设为顶部居中
+          text: 'Top5识别结果及置信度',
+          top: '0%',
+          left: 'left'
+        },
+        series: [
+          {
+            type: 'pie',
+            label: {
+              show: true,
+              formatter: '{b} : {c}'
+            },
+            radius: '40%', // 饼图半径
+            center:['25%', '50%'],
+            data: this.pieData
+          }
+        ]
+      }
+     
+      this.myChart = echarts.init(this.$refs.Echarts)
+      this.myChart.setOption(option)
+    }
+  }
+}
+// 样式数据
+</script>
+    <style>
+    .avatar-uploader .el-upload {
+    border: 1px dashed #d9d9d9;
+    border-radius: 6px;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    }
+    .avatar-uploader .el-upload:hover {
+    border-color: #409EFF;
+    }
+    .avatar-uploader-icon {
+    font-size: 28px;
+    color: #8c939d;
+    width: 178px;
+    height: 178px;
+    line-height: 178px;
+    text-align: center;
+    }
+    .avatar {
+    width: 250px;
+    height: 250px;
+    display: block;
+    }
+    .input-box{
+      width:400px;
+    }
+    </style>
+```
+
+*   4.3网页操作部分
+
+*   在系统管理/菜单管理下，点击新增，填写相关信息
+    <img src="pngs/4.3.1.png" ><br>
+*   点击右侧的菜单按钮，添加相应的权限
+    <img src="pngs/4.3.2.png" ><br>
+
+*   刷新界面，侧边栏中出现图片识别项
+    <img src="pngs/4.3.3.png" ><br>
+
+## 五、其余改动
+
+*   修改登录界面样式：修改web/src/system/login下文件（主要替换两张图）
+*   修改网站名称：全局搜索 “企业级管理系统”，将其替换为需要的名字
 
