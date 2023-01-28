@@ -1,8 +1,5 @@
 # dvadmin使用说明文档
 
-## 目录
-[TOC]
-
 ## 一、 下载及配置
 
 *   下载dvadmin[源码](https://gitee.com/liqianglog/django-vue-admin)
