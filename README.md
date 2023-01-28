@@ -895,4 +895,5 @@ export default {
 
 *   修改登录界面样式：修改web/src/system/login下文件（主要替换两张图）
 *   修改网站名称：全局搜索 “企业级管理系统”，将其替换为需要的名字
+*   [完整代码地址](https://pan.baidu.com/s/1LiIIXJDqvw2unoxp0J4QUA)，密码：6ap5
 
